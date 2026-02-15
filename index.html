@@ -340,6 +340,7 @@ let isRecording = false;
 let translateTimeout = null;
 let lastTranslatedText = '';
 let projectorMode = false;
+let mymemoryExhausted = false;  // MyMemory 한도 초과 플래그
 
 // ===== 요소 =====
 const btnStart = document.getElementById('btnStart');
@@ -412,7 +413,12 @@ function debouncedTranslate(text) {
 async function translateText(text, isInterim = false) {
   if (!text.trim()) return;
 
-  const engine = document.getElementById('translationEngine').value;
+  let engine = document.getElementById('translationEngine').value;
+
+  // MyMemory 한도 초과 시 자동으로 Google 사용
+  if (engine === 'mymemory' && mymemoryExhausted) {
+    engine = 'google';
+  }
 
   try {
     let translated = '';
@@ -427,29 +433,30 @@ async function translateText(text, isInterim = false) {
       currentVietnamese.textContent = translated;
       lastTranslatedText = text;
 
-      // 최종 결과면 히스토리에 추가
       if (!isInterim) {
         addToHistory(text, translated);
       }
     }
   } catch (err) {
     console.error('번역 오류:', err);
-    // 첫 번째 엔진 실패 시 다른 엔진으로 폴백
-    try {
-      const fallbackEngine = engine === 'mymemory' ? 'google' : 'mymemory';
-      let translated = '';
-      if (fallbackEngine === 'mymemory') {
-        translated = await translateMyMemory(text);
-      } else {
-        translated = await translateGoogle(text);
+
+    // MyMemory 실패 → Google로 자동 전환
+    if (engine === 'mymemory') {
+      mymemoryExhausted = true;
+      document.getElementById('translationEngine').value = 'google';
+      showNotification('MyMemory 한도 초과 → Google 번역으로 자동 전환');
+      console.log('[자동 전환] MyMemory → Google');
+
+      try {
+        const translated = await translateGoogle(text);
+        if (translated) {
+          currentVietnamese.textContent = translated;
+          lastTranslatedText = text;
+          if (!isInterim) addToHistory(text, translated);
+        }
+      } catch (err2) {
+        console.error('Google 번역도 실패:', err2);
       }
-      if (translated) {
-        currentVietnamese.textContent = translated;
-        lastTranslatedText = text;
-        if (!isInterim) addToHistory(text, translated);
-      }
-    } catch (err2) {
-      console.error('폴백 번역도 실패:', err2);
     }
   }
 }
@@ -459,6 +466,12 @@ async function translateMyMemory(text) {
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=ko|vi`;
   const res = await fetch(url);
   const data = await res.json();
+
+  // 한도 초과 감지 (429, 403, 또는 상태코드 비정상)
+  if (data.responseStatus === 429 || data.responseStatus === 403 ||
+      (data.responseData && data.responseData.translatedText === '')) {
+    throw new Error('MyMemory 한도 초과');
+  }
 
   if (data.responseStatus === 200 && data.responseData) {
     return data.responseData.translatedText;
