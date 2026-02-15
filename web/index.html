@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>실시간 한국어 → 베트남어 자막</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #000;
+    color: #fff;
+    font-family: 'Malgun Gothic', 'Segoe UI', Arial, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* 상단 컨트롤 패널 */
+  .controls {
+    background: #111;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    border-bottom: 1px solid #333;
+    flex-wrap: wrap;
+  }
+
+  .controls button {
+    padding: 8px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.2s;
+  }
+
+  #btnStart {
+    background: #4CAF50;
+    color: white;
+  }
+  #btnStart:hover { background: #45a049; }
+  #btnStart.recording {
+    background: #f44336;
+    animation: pulse 1.5s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  #btnClear {
+    background: #555;
+    color: white;
+  }
+  #btnClear:hover { background: #666; }
+
+  .controls label {
+    color: #aaa;
+    font-size: 13px;
+  }
+
+  .controls select, .controls input[type="range"] {
+    background: #333;
+    color: #fff;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+
+  .status {
+    font-size: 12px;
+    color: #888;
+    margin-left: auto;
+  }
+
+  .status .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 4px;
+    background: #555;
+  }
+  .status .dot.active { background: #4CAF50; }
+  .status .dot.error { background: #f44336; }
+
+  /* 자막 표시 영역 */
+  .subtitle-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 20px 40px;
+    overflow: hidden;
+  }
+
+  /* 이전 번역 기록 */
+  .history {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    margin-bottom: 16px;
+    opacity: 0.5;
+  }
+
+  .history-item {
+    margin-bottom: 8px;
+    padding: 6px 12px;
+    border-left: 3px solid #444;
+  }
+
+  .history-item .vi {
+    font-size: 1.1em;
+    color: #ccc;
+  }
+
+  .history-item .ko {
+    font-size: 0.8em;
+    color: #777;
+    margin-top: 2px;
+  }
+
+  /* 현재 자막 (메인) */
+  .current-subtitle {
+    text-align: center;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .current-korean {
+    font-size: 1.2em;
+    color: #aaa;
+    margin-bottom: 8px;
+    line-height: 1.4;
+    max-width: 90%;
+    min-height: 1.4em;
+  }
+
+  .current-korean .interim {
+    color: #666;
+    font-style: italic;
+  }
+
+  .current-vietnamese {
+    font-size: 2.2em;
+    font-weight: 700;
+    color: #FFD700;
+    text-shadow: 2px 2px 8px rgba(0,0,0,0.8),
+                 0 0 20px rgba(255,215,0,0.3);
+    line-height: 1.3;
+    max-width: 90%;
+    min-height: 1.3em;
+    transition: opacity 0.3s;
+  }
+
+  /* 프로젝터 모드 */
+  body.projector-mode .controls {
+    position: fixed;
+    top: -60px;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    transition: top 0.3s ease;
+    border-bottom: 2px solid #4CAF50;
+  }
+
+  body.projector-mode .controls:hover,
+  body.projector-mode .controls.peek {
+    top: 0;
+  }
+
+  /* 마우스 감지 영역 (화면 최상단) */
+  body.projector-mode .hover-zone {
+    display: block;
+  }
+
+  .hover-zone {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 15px;
+    z-index: 49;
+  }
+
+  body.projector-mode .history {
+    display: none;
+  }
+
+  body.projector-mode .subtitle-area {
+    padding: 10px 30px;
+    justify-content: center;
+  }
+
+  body.projector-mode {
+    background: transparent;
+  }
+
+  /* 단축키 도움말 */
+  .shortcut-help {
+    position: fixed;
+    bottom: 10px;
+    right: 15px;
+    font-size: 11px;
+    color: #444;
+    text-align: right;
+    line-height: 1.6;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+
+  body.projector-mode .shortcut-help {
+    opacity: 0;
+  }
+
+  body.projector-mode .shortcut-help.visible {
+    opacity: 1;
+  }
+
+  /* 설정 패널 */
+  .font-size-display {
+    color: #fff;
+    font-size: 13px;
+    min-width: 30px;
+    text-align: center;
+  }
+
+  /* 번역 엔진 선택 */
+  .engine-select {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* 알림 */
+  .notification {
+    position: fixed;
+    top: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.85);
+    color: #fff;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    z-index: 100;
+    display: none;
+    border: 1px solid #444;
+  }
+
+  .notification.show {
+    display: block;
+    animation: fadeInOut 3s forwards;
+  }
+
+  @keyframes fadeInOut {
+    0% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+    15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    85% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  /* 반응형 */
+  @media (max-width: 768px) {
+    .current-vietnamese { font-size: 1.6em; }
+    .current-korean { font-size: 1em; }
+    .subtitle-area { padding: 10px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <button id="btnStart" onclick="toggleRecognition()">시작</button>
+  <button id="btnClear" onclick="clearHistory()">지우기</button>
+
+  <div class="engine-select">
+    <label for="translationEngine">번역:</label>
+    <select id="translationEngine">
+      <option value="mymemory">MyMemory</option>
+      <option value="google">Google (비공식)</option>
+    </select>
+  </div>
+
+  <label for="fontRange">크기:</label>
+  <input type="range" id="fontRange" min="1" max="5" value="3" oninput="changeFontSize(this.value)">
+  <span class="font-size-display" id="fontSizeDisplay">2.2em</span>
+
+  <button id="btnProjector" onclick="toggleProjectorMode()"
+    style="background:#2196F3;color:#fff;font-size:12px;padding:6px 12px;">
+    프로젝터 모드
+  </button>
+
+  <div class="status">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">대기 중</span>
+  </div>
+</div>
+
+<div class="subtitle-area">
+  <div class="history" id="history"></div>
+
+  <div class="current-subtitle">
+    <div class="current-korean" id="currentKorean"></div>
+    <div class="current-vietnamese" id="currentVietnamese"></div>
+  </div>
+</div>
+
+<div class="hover-zone" id="hoverZone"></div>
+
+<div class="notification" id="notification"></div>
+
+<div class="shortcut-help" id="shortcutHelp">
+  Space: 시작/중지 &nbsp;|&nbsp; +/-: 글자 크기 &nbsp;|&nbsp; C: 지우기 &nbsp;|&nbsp; ESC: 프로젝터 해제
+</div>
+
+<script>
+// ===== 설정 =====
+const FONT_SIZES = ['1.4em', '1.8em', '2.2em', '2.8em', '3.4em'];
+const MAX_HISTORY = 10;
+const TRANSLATE_DEBOUNCE_MS = 500;
+
+// ===== 상태 =====
+let recognition = null;
+let isRecording = false;
+let translateTimeout = null;
+let lastTranslatedText = '';
+let projectorMode = false;
+
+// ===== 요소 =====
+const btnStart = document.getElementById('btnStart');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const currentKorean = document.getElementById('currentKorean');
+const currentVietnamese = document.getElementById('currentVietnamese');
+const historyEl = document.getElementById('history');
+
+// ===== Web Speech API 초기화 =====
+function initSpeechRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    showNotification('이 브라우저는 음성인식을 지원하지 않습니다. Chrome을 사용해주세요.');
+    return false;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.lang = 'ko-KR';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+
+  recognition.onresult = handleResult;
+  recognition.onerror = handleError;
+  recognition.onend = handleEnd;
+  recognition.onstart = () => {
+    setStatus('active', '듣는 중...');
+  };
+
+  return true;
+}
+
+// ===== 음성인식 결과 처리 =====
+function handleResult(event) {
+  let interimTranscript = '';
+  let finalTranscript = '';
+
+  for (let i = event.resultIndex; i < event.results.length; i++) {
+    const transcript = event.results[i][0].transcript;
+    if (event.results[i].isFinal) {
+      finalTranscript += transcript;
+    } else {
+      interimTranscript += transcript;
+    }
+  }
+
+  // 현재 한국어 텍스트 표시
+  if (finalTranscript) {
+    currentKorean.innerHTML = finalTranscript;
+    translateText(finalTranscript);
+  } else if (interimTranscript) {
+    currentKorean.innerHTML = `<span class="interim">${interimTranscript}</span>`;
+    // 중간 결과도 디바운스로 번역 (빠른 피드백)
+    debouncedTranslate(interimTranscript);
+  }
+}
+
+// ===== 번역 =====
+function debouncedTranslate(text) {
+  clearTimeout(translateTimeout);
+  translateTimeout = setTimeout(() => {
+    if (text !== lastTranslatedText) {
+      translateText(text, true);
+    }
+  }, TRANSLATE_DEBOUNCE_MS);
+}
+
+async function translateText(text, isInterim = false) {
+  if (!text.trim()) return;
+
+  const engine = document.getElementById('translationEngine').value;
+
+  try {
+    let translated = '';
+
+    if (engine === 'mymemory') {
+      translated = await translateMyMemory(text);
+    } else {
+      translated = await translateGoogle(text);
+    }
+
+    if (translated) {
+      currentVietnamese.textContent = translated;
+      lastTranslatedText = text;
+
+      // 최종 결과면 히스토리에 추가
+      if (!isInterim) {
+        addToHistory(text, translated);
+      }
+    }
+  } catch (err) {
+    console.error('번역 오류:', err);
+    // 첫 번째 엔진 실패 시 다른 엔진으로 폴백
+    try {
+      const fallbackEngine = engine === 'mymemory' ? 'google' : 'mymemory';
+      let translated = '';
+      if (fallbackEngine === 'mymemory') {
+        translated = await translateMyMemory(text);
+      } else {
+        translated = await translateGoogle(text);
+      }
+      if (translated) {
+        currentVietnamese.textContent = translated;
+        lastTranslatedText = text;
+        if (!isInterim) addToHistory(text, translated);
+      }
+    } catch (err2) {
+      console.error('폴백 번역도 실패:', err2);
+    }
+  }
+}
+
+// MyMemory 번역 API (무료, CORS 지원)
+async function translateMyMemory(text) {
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=ko|vi`;
+  const res = await fetch(url);
+  const data = await res.json();
+
+  if (data.responseStatus === 200 && data.responseData) {
+    return data.responseData.translatedText;
+  }
+  throw new Error('MyMemory 번역 실패');
+}
+
+// Google 비공식 번역 API
+async function translateGoogle(text) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=vi&dt=t&q=${encodeURIComponent(text)}`;
+  const res = await fetch(url);
+  const data = await res.json();
+
+  if (data && data[0]) {
+    return data[0].map(item => item[0]).join('');
+  }
+  throw new Error('Google 번역 실패');
+}
+
+// ===== 히스토리 =====
+function addToHistory(korean, vietnamese) {
+  const item = document.createElement('div');
+  item.className = 'history-item';
+  item.innerHTML = `
+    <div class="vi">${vietnamese}</div>
+    <div class="ko">${korean}</div>
+  `;
+  historyEl.appendChild(item);
+
+  // 최대 개수 제한
+  while (historyEl.children.length > MAX_HISTORY) {
+    historyEl.removeChild(historyEl.firstChild);
+  }
+
+  // 스크롤 아래로
+  historyEl.scrollTop = historyEl.scrollHeight;
+
+  // 다음 문장을 위해 현재 자막 초기화 (잠시 후)
+  setTimeout(() => {
+    currentKorean.textContent = '';
+    currentVietnamese.textContent = '';
+  }, 2000);
+}
+
+function clearHistory() {
+  historyEl.innerHTML = '';
+  currentKorean.textContent = '';
+  currentVietnamese.textContent = '';
+  showNotification('기록이 지워졌습니다');
+}
+
+// ===== 음성인식 제어 =====
+function toggleRecognition() {
+  if (isRecording) {
+    stopRecognition();
+  } else {
+    startRecognition();
+  }
+}
+
+function startRecognition() {
+  if (!recognition && !initSpeechRecognition()) return;
+
+  try {
+    recognition.start();
+    isRecording = true;
+    btnStart.textContent = '중지';
+    btnStart.classList.add('recording');
+    setStatus('active', '듣는 중...');
+  } catch (e) {
+    console.error('시작 오류:', e);
+    showNotification('마이크 접근 권한이 필요합니다');
+  }
+}
+
+function stopRecognition() {
+  if (recognition) {
+    recognition.stop();
+  }
+  isRecording = false;
+  btnStart.textContent = '시작';
+  btnStart.classList.remove('recording');
+  setStatus('', '대기 중');
+}
+
+function handleError(event) {
+  console.error('음성인식 오류:', event.error);
+
+  if (event.error === 'not-allowed') {
+    setStatus('error', '마이크 권한 거부됨');
+    showNotification('마이크 접근을 허용해주세요');
+    stopRecognition();
+  } else if (event.error === 'no-speech') {
+    setStatus('active', '음성을 기다리는 중...');
+  } else if (event.error === 'network') {
+    setStatus('error', '네트워크 오류');
+    showNotification('인터넷 연결을 확인해주세요');
+  }
+}
+
+function handleEnd() {
+  // continuous 모드에서 자동 재시작
+  if (isRecording) {
+    try {
+      setTimeout(() => {
+        if (isRecording) recognition.start();
+      }, 100);
+    } catch (e) {
+      console.error('재시작 오류:', e);
+    }
+  }
+}
+
+// ===== UI 유틸 =====
+function setStatus(type, text) {
+  statusDot.className = 'dot' + (type ? ` ${type}` : '');
+  statusText.textContent = text;
+}
+
+function showNotification(msg) {
+  const el = document.getElementById('notification');
+  el.textContent = msg;
+  el.classList.remove('show');
+  void el.offsetWidth; // reflow
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function changeFontSize(val) {
+  const size = FONT_SIZES[val - 1];
+  currentVietnamese.style.fontSize = size;
+  document.getElementById('fontSizeDisplay').textContent = size;
+}
+
+function toggleProjectorMode() {
+  projectorMode = !projectorMode;
+  document.body.classList.toggle('projector-mode', projectorMode);
+
+  if (projectorMode) {
+    showNotification('프로젝터 모드 | 마우스를 상단에 올리면 컨트롤 표시 | ?로 단축키 보기');
+    // 풀스크린 요청
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  } else {
+    if (document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+}
+
+// ===== 프로젝터 모드 마우스 호버 컨트롤 =====
+const hoverZone = document.getElementById('hoverZone');
+const controlsEl = document.querySelector('.controls');
+let hideControlsTimer = null;
+
+hoverZone.addEventListener('mouseenter', () => {
+  controlsEl.classList.add('peek');
+  clearTimeout(hideControlsTimer);
+});
+
+controlsEl.addEventListener('mouseenter', () => {
+  controlsEl.classList.add('peek');
+  clearTimeout(hideControlsTimer);
+});
+
+controlsEl.addEventListener('mouseleave', () => {
+  hideControlsTimer = setTimeout(() => {
+    controlsEl.classList.remove('peek');
+  }, 500);
+});
+
+// ===== 키보드 단축키 =====
+document.addEventListener('keydown', (e) => {
+  // input/select 포커스 중에는 무시
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+  switch (e.key) {
+    case 'Escape':
+      if (projectorMode) toggleProjectorMode();
+      break;
+
+    case ' ':  // Space: 시작/중지
+      e.preventDefault();
+      toggleRecognition();
+      break;
+
+    case '+':
+    case '=':  // +: 글자 크게
+      e.preventDefault();
+      adjustFontSize(1);
+      break;
+
+    case '-':  // -: 글자 작게
+      e.preventDefault();
+      adjustFontSize(-1);
+      break;
+
+    case 'c':
+    case 'C':  // C: 지우기
+      clearHistory();
+      break;
+
+    case '?':  // ?: 단축키 도움말 토글
+      if (projectorMode) {
+        document.getElementById('shortcutHelp').classList.toggle('visible');
+      }
+      break;
+  }
+});
+
+function adjustFontSize(direction) {
+  const range = document.getElementById('fontRange');
+  let val = parseInt(range.value) + direction;
+  val = Math.max(1, Math.min(5, val));
+  range.value = val;
+  changeFontSize(val);
+  showNotification(`글자 크기: ${FONT_SIZES[val - 1]}`);
+}
+
+// 전체화면 해제 감지
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement && projectorMode) {
+    projectorMode = false;
+    document.body.classList.remove('projector-mode');
+  }
+});
+
+// ===== 초기화 =====
+initSpeechRecognition();
+</script>
+</body>
+</html>
