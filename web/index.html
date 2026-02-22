@@ -612,14 +612,6 @@ function toggleProjectorMode() {
 
   if (projectorMode) {
     showNotification('프로젝터 모드 | 마우스를 상단에 올리면 컨트롤 표시 | ?로 단축키 보기');
-    // 풀스크린 요청
-    if (document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    }
-  } else {
-    if (document.exitFullscreen) {
-      document.exitFullscreen().catch(() => {});
-    }
   }
 }
 
@@ -692,13 +684,6 @@ function adjustFontSize(direction) {
   showNotification(`글자 크기: ${FONT_SIZES[val - 1]}`);
 }
 
-// 전체화면 해제 감지
-document.addEventListener('fullscreenchange', () => {
-  if (!document.fullscreenElement && projectorMode) {
-    projectorMode = false;
-    document.body.classList.remove('projector-mode');
-  }
-});
 
 // ===== 초기화 =====
 initSpeechRecognition();
